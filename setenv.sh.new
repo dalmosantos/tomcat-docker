@@ -1,0 +1,80 @@
+#!/bin/bash
+
+#############################################
+#                                           #
+# Custom Environment Variables for Tomcat   #
+#                                           #
+#############################################
+
+export HOME="$(getent passwd "$UID" | awk -F":" '{print $6}')" # fix "$HOME" by "$UID"
+export JAVA_HOME=$(readlink -f /usr/bin/java | sed "s:/bin/java::")
+export PATH=${JAVA_HOME}/bin:${PATH}
+JAVA_FILE_ENCODING=UTF-8
+CPU_COUNT="$(grep -c 'cpu[0-9][0-9]*' /proc/stat)"
+ulimit -c unlimited
+echo "INFO: OS max open files: "`ulimit -n`
+
+export CATALINA_HOME=$HOME/apache-tomcat
+# The CATALINA_BASE environment is optional if you are running a single Tomcat instance on the host and will default to CATALINA_HOME in that case.
+# If you are running multiple instances as you are it should be provided
+# export CATALINA_BASE=CATALINA_HOME/.server
+export CATALINA_LOGS=$CATALINA_HOME/logs/catalina
+export CATALINA_OUT=$CATALINA_HOME/logs/tomcat_stdout.log
+export CATALINA_PID=$CATALINA_HOME/temp/catalina.pid
+export TOMCAT_PORT=8080
+
+# Tomcat jvm options
+CATALINA_OPTS="-server" 
+let memTotal=`cat /proc/meminfo | grep MemTotal | awk '{printf "%d", $2/1024 }'`
+echo "INFO: OS total memory: "$memTotal"M"
+# if os memory <= 2G
+    if [ $memTotal -le 2048 ]; then
+        CATALINA_OPTS="${CATALINA_OPTS} -Xms1536m -Xmx1536m"
+        CATALINA_OPTS="${CATALINA_OPTS} -Xmn768m"
+    else
+        CATALINA_OPTS="${CATALINA_OPTS} -Xms2g -Xmx4g"
+        CATALINA_OPTS="${CATALINA_OPTS} -Xmn2g"
+    fi
+CATALINA_OPTS="${CATALINA_OPTS} -XX:PermSize=256m -XX:MaxPermSize=256m"
+CATALINA_OPTS="${CATALINA_OPTS} -XX:MaxDirectMemorySize=512m"
+CATALINA_OPTS="${CATALINA_OPTS} -XX:SurvivorRatio=8"
+CATALINA_OPTS="${CATALINA_OPTS} -XX:+UseConcMarkSweepGC -XX:+UseCMSCompactAtFullCollection -XX:CMSMaxAbortablePrecleanTime=5000"
+CATALINA_OPTS="${CATALINA_OPTS} -XX:+CMSClassUnloadingEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:+UseCMSInitiatingOccupancyOnly"
+CATALINA_OPTS="${CATALINA_OPTS} -XX:+ExplicitGCInvokesConcurrent -Dsun.rmi.dgc.server.gcInterval=2592000000 -Dsun.rmi.dgc.client.gcInterval=2592000000"
+CATALINA_OPTS="${CATALINA_OPTS} -XX:ParallelGCThreads=${CPU_COUNT}"
+CATALINA_OPTS="${CATALINA_OPTS} -Xloggc:${CATALINA_LOGS}/gc.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps"
+CATALINA_OPTS="${CATALINA_OPTS} -XX:+HeapDumpBeforeFullGC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${CATALINA_LOGS}/java.hprof"
+CATALINA_OPTS="${CATALINA_OPTS} -Djava.awt.headless=true"
+CATALINA_OPTS="${CATALINA_OPTS} -Dsun.net.client.defaultConnectTimeout=10000"
+CATALINA_OPTS="${CATALINA_OPTS} -Dsun.net.client.defaultReadTimeout=30000"
+CATALINA_OPTS="${CATALINA_OPTS} -Dfile.encoding=${JAVA_FILE_ENCODING}"
+
+#JMX
+IP_ADDR=`ip route get 8.8.8.8 | awk '{print $NF; exit}'`
+CATALINA_OPTS="${CATALINA_OPTS} -Dcom.sun.management.jmxremote -Dcom.sun.management.jmxremote.port=$((TOMCAT_PORT+2)) -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.authenticate=false -Djava.rmi.server.hostname=$IP_ADDR"
+
+export CATALINA_OPTS
+
+## JAVA OPTS
+# export JAVA_OPTS="$JAVA_OPTS -Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.port=9090 -Dcom.sun.management.jmxremote.rmi.port=9090 -Dcom.sun.management.jmxremote.ssl=false -Dcom.sun.management.jmxremote.authenticate=false -Djava.rmi.server.hostname=172.17.0.2"
+
+# Check for application specific parameters at startup
+:'
+if [ -r "$CATALINA_BASE/bin/appenv.sh" ]; then
+#  . "$CATALINA_BASE/bin/appenv.sh"
+fi
+'
+echo "Using CATALINA_OPTS:"
+for arg in $CATALINA_OPTS
+do
+    echo ">> " $arg
+done
+echo ""
+
+echo "Using JAVA_OPTS:"
+for arg in $JAVA_OPTS
+do
+    echo ">> " $arg
+done
+echo "_______________________________________________"
+echo ""
